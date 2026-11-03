@@ -294,6 +294,15 @@ func TestImportBundleLayoutRefusesBeforeOutput(t *testing.T) {
 		{name: "config data padding bits", mutate: func(t *testing.T, root string) string {
 			return spliceFixtureManifest(t, root, `"data":"e31="`)
 		}},
+		{name: "config data unpadded", mutate: func(t *testing.T, root string) string {
+			return spliceFixtureManifest(t, root, `"data":"e30"`)
+		}},
+		{name: "config data leading space", mutate: func(t *testing.T, root string) string {
+			return spliceFixtureManifest(t, root, `"data":" e30="`)
+		}},
+		{name: "config data trailing space", mutate: func(t *testing.T, root string) string {
+			return spliceFixtureManifest(t, root, `"data":"e30= "`)
+		}},
 		{name: "config data alias after", mutate: func(t *testing.T, root string) string {
 			return spliceFixtureManifest(t, root, `"data":"eyJhIjoxfQ==","DATA":"e30="`)
 		}},
