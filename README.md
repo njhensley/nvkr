@@ -27,7 +27,9 @@ You need **Git 2.38 or later, Bash and running Docker**. You also need the pinne
 Use Docker Desktop on macOS, or Docker on Linux.
 NVKR runs on your host. The NVKE CLI and image it builds target Linux.
 The launcher checks prerequisites, selects the required Go compiler and builds NVKR from source for your CPU architecture.
-Git must already be installed. The launcher shows supported Docker installation actions and local Go setup for your approval before it runs them.
+Git must already be installed. The launcher shows supported Docker installation actions and local Go setup for your approval before it runs them,
+and those prompts need an interactive terminal.
+The quickstart lists the [full prerequisites](docs/quickstart.md#before-you-start), including Linux Docker access and platform limits.
 
 Open a terminal in a directory without an existing `nvkr` folder and copy the whole block:
 
