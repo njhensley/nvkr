@@ -37,3 +37,20 @@ S3 copying does not establish actual EFI chainload, imaging/reboot, direct VM bo
 Secure Boot or qualification. Downstream serving and intended-client authentication remain separate. The pinned
 NVKE source documents its [imager parameter compatibility boundary](https://github.com/dsx-ai-factory/nvke/blob/ff21ba8c07cafff74b68e238a8876af11e5beded/os-image/efi/README.md#L36);
 matching transport bytes cannot resolve that product decision. No live boot/install acceptance is asserted.
+
+## Branch-only local S3 experiment
+
+The [local transport experiment](../../s3-publish-experiment.md) uses the opt-in
+`s3experiment` build tag and the existing S3 byte transport and OCI document adapter.
+A local SeaweedFS/Distribution run on 2026-11-10 published the native NVKR CLI,
+checksum, Go-module SBOM, local build observation and local Ed25519 signature;
+OCI-led consumption recovered identical bytes, and a same-size S3 overwrite
+failed the pinned read with `NVKR-E-VERIFY-FAILED` (exit 22). The runner retains
+`run.log` and `tamper.log` in its printed external evidence directory. SeaweedFS
+was the explicitly authorized fallback after MinIO pulls were unavailable.
+
+This exercises a distinct experimental OCI document, not an issued production
+Release, original signed-closure mirroring, exact-Plan verification, MinIO/AWS,
+workload identity or a QCOW2 build. Its public test credentials and independent
+local trust key are confined to the build-tagged loopback experiment. The
+production contract and its outstanding external evidence above are unchanged.

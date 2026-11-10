@@ -193,6 +193,12 @@ Signer-policy rejection is covered by the owning consumer contract tests.
 
 ## Focused supporting contracts
 
+`bash scripts/s3-experiment.sh` runs the branch-only
+[local S3/OCI experiment](../docs/s3-publish-experiment.md): digest-pinned local
+containers, a real CLI artifact, OCI-led S3 verification and a required tamper
+rejection. Runtime evidence stays outside the checkout. The separate experimental
+record and local signing key grant no production Release authority.
+
 `prepare-native-toolchains.sh` retains native Packer/inspector archives and measurements;
 `verify-native-toolchains.sh` shares the committed-pin and candidate native checks.
 The [toolchain maintenance workflow](../docs/toolchain-maintenance.md) delegates subject admission,
