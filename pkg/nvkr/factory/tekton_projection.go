@@ -17,6 +17,18 @@ type tektonProjection struct {
 	dependencies map[string][]string
 }
 
+// admitTektonExecution is shared by rendering and the projection host. The
+// host must admit the engine's capabilities before calling a trusted adapter.
+func admitTektonExecution(ctx context.Context, plan *Plan) (*tektonProjection, error) {
+	if err := executionContext(ctx); err != nil {
+		return nil, err
+	}
+	if plan == nil || plan.Environment.Tekton == nil {
+		return nil, e.New(e.CodeEngineCapability, "Tekton generation requires explicit cluster execution and trust configuration")
+	}
+	return projectTektonExecution(ctx, plan, plan.Environment.Tekton.Platform)
+}
+
 func projectTektonExecution(ctx context.Context, plan *Plan, platform string) (*tektonProjection, error) {
 	if err := executionContext(ctx); err != nil {
 		return nil, err

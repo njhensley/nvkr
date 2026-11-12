@@ -33,17 +33,11 @@ type tektonObject map[string]any
 // renderTekton projects the admitted Plan to a finite Kubernetes resource list.
 // Build and evidence operations remain owned by the shared NVKR runner.
 func renderTekton(ctx context.Context, plan *Plan) (*GeneratedBundle, error) {
-	if err := executionContext(ctx); err != nil {
-		return nil, err
-	}
-	if plan == nil || plan.Environment.Tekton == nil {
-		return nil, e.New(e.CodeEngineCapability, "Tekton generation requires explicit cluster execution and trust configuration")
-	}
-	settings := plan.Environment.Tekton
-	projection, err := projectTektonExecution(ctx, plan, settings.Platform)
+	projection, err := admitTektonExecution(ctx, plan)
 	if err != nil {
 		return nil, err
 	}
+	settings := plan.Environment.Tekton
 	layout := tektonLayoutFor(plan)
 	files, digest, err := renderStaticInputs(ctx, plan, layout)
 	if err != nil {

@@ -19,6 +19,9 @@ import (
 // Compile a separate command that imports only the public serving API. This
 // proves the pilot's executable boundary independently of test-binary re-entry.
 func TestTektonProjectionCompiledAdapterEquivalence(t *testing.T) {
+	if testing.Short() {
+		t.Skip("separately compiled adapter is covered by the ordinary suite")
+	}
 	commandSource, err := filepath.Abs("testdata/projection-adapter")
 	if err != nil {
 		t.Fatal(err)
@@ -119,6 +122,83 @@ func TestTektonProjectionRejectsNilContext(t *testing.T) {
 				t.Fatal("nil context returned a Plan digest")
 			}
 			assertProjectionDirectoryEmpty(t, root)
+		})
+	}
+}
+
+func TestTektonProjectionAdmitsCapabilitiesBeforeAdapter(t *testing.T) {
+	plan := githubTestPlan(t)
+	if err := plan.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, transport := range []ProjectionTransport{"", ProjectionInProcess, ProjectionOutOfProcess} {
+		name := string(transport)
+		if name == "" {
+			name = "built-in"
+		}
+		t.Run(name, func(t *testing.T) {
+			previous := launchProjectionAdapter
+			launchProjectionAdapter = func(context.Context, ProjectionAdapter, []byte, int) ([]byte, error) {
+				t.Fatal("unsupported Tekton Plan reached the adapter launcher")
+				return nil, nil
+			}
+			t.Cleanup(func() { launchProjectionAdapter = previous })
+			record := recordProjectionLaunches(t)
+			ctx := t.Context()
+			if transport != "" {
+				adapter := ProjectionAdapter{Transport: transport, Release: projectionTestRelease}
+				if transport == ProjectionOutOfProcess {
+					adapter.Path = filepath.Join(t.TempDir(), "adapter")
+				}
+				ctx = WithProjectionAdapter(ctx, adapter)
+			}
+			root := t.TempDir()
+			digest, err := Generate(ctx, plan, EngineTekton, root, false)
+			assertFactoryErrorCode(t, err, e.CodeEngineCapability)
+			if digest != "" || *record != (projectionLaunches{}) {
+				t.Fatalf("unsupported Plan reached the adapter: digest=%q calls=%+v", digest, record)
+			}
+			assertProjectionDirectoryEmpty(t, root)
+		})
+	}
+}
+
+func TestValidateTektonBundleMetadata(t *testing.T) {
+	plan := tektonTestPlan(t)
+	bundle, err := renderTekton(t.Context(), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		omit   bool
+		mutate func(*GeneratedBundle)
+	}{
+		{name: "valid"},
+		{name: "nil", omit: true},
+		{name: "engine", mutate: func(b *GeneratedBundle) { b.Engine = EngineGitHub }},
+		{name: "workflow path", mutate: func(b *GeneratedBundle) { b.WorkflowPath = "other/workflow.json" }},
+		{name: "manifest path", mutate: func(b *GeneratedBundle) { b.ManifestPath = "other/manifest.json" }},
+		{name: "Plan path", mutate: func(b *GeneratedBundle) { b.PlanPath = "other/plan.json" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Copy metadata only; every candidate retains the exact same Files.
+			candidate := *bundle
+			if test.mutate != nil {
+				test.mutate(&candidate)
+			}
+			input := &candidate
+			if test.omit {
+				input = nil
+			}
+			err := ValidateTektonBundle(t.Context(), plan, input)
+			if test.name == "valid" {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				assertFactoryErrorCode(t, err, e.CodePipelineDrift)
+			}
 		})
 	}
 }

@@ -200,6 +200,11 @@ func renderProjected(ctx context.Context, plan *Plan, engine string, plugin proj
 	if err != nil {
 		return nil, err
 	}
+	if core.engine == EngineTekton {
+		if _, err := admitTektonExecution(ctx, plan); err != nil {
+			return nil, err
+		}
+	}
 	planBytes, err := canonical.Marshal(plan)
 	if err != nil {
 		return nil, err
