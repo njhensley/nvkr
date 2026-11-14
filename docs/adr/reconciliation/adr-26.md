@@ -8,7 +8,11 @@
 
 [Run 42131864402, attempt 2](https://github.com/dsx-ai-factory/nvkr/actions/runs/42131864402/attempts/2)
 completed on `main` at `ee79958425989861d93845d8b9fdef0d78ed33db` on November 6, 2026.
-It used the existing partitioned `nvkr-run-nvke-gpu-site.yml` workflow and the six-member
+The November 14, 2026 acceptance decision records this Run as the hosted family Release proof
+for [#342](https://github.com/dsx-ai-factory/nvkr/issues/342). That proof does not require a fresh
+Run. It covers the exact 83-output candidate and immutable root below; independent consumer
+verification remains the next step under [#352](https://github.com/dsx-ai-factory/nvkr/issues/352).
+The Run used the existing partitioned `nvkr-run-nvke-gpu-site.yml` workflow and the six-member
 [composite Definition at that commit](https://github.com/dsx-ai-factory/nvkr/blob/ee79958425989861d93845d8b9fdef0d78ed33db/inputs/definitions/nvke/gpu-site.composite.yaml).
 The [publication job](https://github.com/dsx-ai-factory/nvkr/actions/runs/42131864402/job/127680628164)
 emitted this immutable root:

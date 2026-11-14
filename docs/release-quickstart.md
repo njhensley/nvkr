@@ -177,12 +177,12 @@ composite description, including those charts, is outside the
 
 The [GPU site composite](https://github.com/dsx-ai-factory/nvkr/blob/main/inputs/definitions/nvke/README.md#gpu-site-composite)
 publishes every family output under one reference; `qcow-imager.efi` and the GPU stack still come
-separately, as in the steps below. The [historical hosted publication](https://github.com/dsx-ai-factory/nvkr/blob/main/docs/adr/reconciliation/adr-26.md#hosted-gpu-site-publication)
-records 83 outputs and their exact root. It covers that candidate only. Current-candidate execution,
-independent consumer verification, [published-disk guest boots](https://github.com/dsx-ai-factory/nvkr/issues/342)
-and site installation remain unproved.
-[#342](https://github.com/dsx-ai-factory/nvkr/issues/342) tracks the fresh publication proof;
-[#352](https://github.com/dsx-ai-factory/nvkr/issues/352) tracks independent verification.
+separately, as in the steps below. The [accepted hosted publication proof](https://github.com/dsx-ai-factory/nvkr/blob/main/docs/adr/reconciliation/adr-26.md#hosted-gpu-site-publication)
+for [#342](https://github.com/dsx-ai-factory/nvkr/issues/342) is the November 6 composite Run,
+attempt 2, with 83 outputs under one signed root. It covers that exact candidate; a fresh Run is
+not required for this proof. [#352](https://github.com/dsx-ai-factory/nvkr/issues/352) is the next
+independent consumer verification step. The record keeps later-candidate execution, published-disk
+guest boots and site installation outside that acceptance scope.
 
 ### Get the inputs from NVKR
 
