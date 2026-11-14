@@ -43,6 +43,12 @@ under `toolchains/`, leaving image build locks outside its write set.
 Maintained consumer pins and local AMD64 image IDs select these published subjects; disk producer
 contracts require Packer `1.16.2`, matching the candidate source lock. Frozen/local overlays and generated
 bundles follow those inputs. The new disk Build identities have not been executed end to end.
+The AMD64 local demo used by `nvkr-nightly.yml` has a separate diagnostic selection:
+Packer `1.15.4` and QEMU plugin `1.1.6`, matching NVKE main at `2f31480b360cbd7fc9d9db7a6ba274a8d0fd5049`.
+The existing builder selects those pinned archives and executables only with `--nightly`;
+its default maintenance inputs, published image pins and ARM64 selection are unchanged.
+Local contracts check selection, admission and build/validation arguments. A successful hosted
+build/site/tenant/cleanup cycle with these pins remains unrecorded.
 The corrected hosted proposal/App exchange remains unexercised; this publication attempt does not
 demonstrate a human environment-approval pause or complete refresh acceptance. GitHub rulesets,
 protected-environment review, private carrier retention, review-record authenticity and registry
