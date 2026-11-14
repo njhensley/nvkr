@@ -1,5 +1,12 @@
 ## Support by owner
 
+Private-download helper compilation now uses a dedicated Go build cache scoped to the repository,
+Run and attempt, helper sources and embedded assets, module manifests, linker stamp, published-module
+pin and setup-go's platform/toolchain key. Module acquisition retains its fresh disposable cache;
+per-job compilation and private binary transport remain. Local contracts cover retained build-cache use
+and cleanup through success, failure and cancellation, credential stripping and rejection of weakened
+generated cache bindings. Hosted cache restoration, hit rates and timing improvements remain unmeasured.
+
 Tekton implements ADR-18's explicit cluster trust contract. The provider authenticates
 complete PipelineRun, TaskRun and PVC bindings and binds carrier bytes to successful task results. Controlled
 TLS and carrier fixtures pass; a local kind v0.31.0 / Kubernetes v1.35.0 / Tekton v1.18.0 installation has

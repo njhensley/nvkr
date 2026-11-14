@@ -42,15 +42,42 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Scope the helper build cache to this Run attempt
+      shell: bash
+      env:
+        NVKR_CACHE_SCOPE: ${{ github.repository_id }}:${{ github.run_id }}:${{ github.run_attempt }}
+        NVKR_CACHE_HELPER: |+
+          -X main.version=dev -X main.commit=unknown
+
+      run: |-
+        set -eu
+        mkdir -p .nvkr/ci-bootstrap "$RUNNER_TEMP/nvkr-ci-go-cache/build" "$RUNNER_TEMP/nvkr-ci-go-cache/unused-modules"
+        printf '%s\n' "$NVKR_CACHE_SCOPE" "$NVKR_CACHE_HELPER" > .nvkr/ci-bootstrap/cache-key
     - name: Provision the pinned Go bootstrap
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+      env:
+        GOCACHE: ${{ runner.temp }}/nvkr-ci-go-cache/build
+        GOMODCACHE: ${{ runner.temp }}/nvkr-ci-go-cache/unused-modules
+        GOTOOLCHAIN: local
+        GOENV: 'off'
+        GOWORK: 'off'
       with:
         go-version-file: .go-version
-        cache: "false"
+        cache: "true"
+        cache-dependency-path: |-
+          .nvkr/ci-bootstrap/cache-key
+          go.mod
+          go.sum
+          .go-version
+          cmd/**
+          client/**
+          internal/**
+          pkg/**
     - name: Build private transport helper
       shell: bash
       env:
         GOTOOLCHAIN: local
+        NVKR_CI_GO_BUILD_CACHE: ${{ runner.temp }}/nvkr-ci-go-cache/build
       run: |-
         set +x +v
         set -eu
@@ -204,8 +231,13 @@ runs:
         def build(cache):
             # Never pass repository, registry or OIDC credentials to either Go process.
             env = {key: os.environ[key] for key in ("PATH", "HOME", "TMPDIR", "GOROOT") if key in os.environ}
+            build_cache = os.environ.get("NVKR_CI_GO_BUILD_CACHE", os.path.join(cache, "build"))
+            if "NVKR_CI_GO_BUILD_CACHE" in os.environ:
+                expected = os.path.join(runner_temp, "nvkr-ci-go-cache", "build")
+                if build_cache != expected or os.path.islink(build_cache) or not os.path.isdir(build_cache):
+                    raise ValueError("invalid helper build cache")
             env.update(CGO_ENABLED="0", GOTOOLCHAIN="local", GOENV="off", GOWORK="off",
-                       GOCACHE=os.path.join(cache, "build"), GOMODCACHE=os.path.join(cache, "modules"))
+                       GOCACHE=build_cache, GOMODCACHE=os.path.join(cache, "modules"))
             deadline = time.monotonic() + 900
             check_deadline(deadline)
             source = "."
