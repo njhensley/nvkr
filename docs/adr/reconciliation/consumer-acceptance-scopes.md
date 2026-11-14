@@ -1,6 +1,6 @@
 ## Consumer acceptance scopes
 
-Current publication-root v4 binds the exact Definition, Environment and Plan identities. Optional consumer
+Current publication-root v4 and composite v5 bind the exact Definition, Environment and Plan identities. Optional consumer
 expectations are checked before external work; the lifecycle owner authenticates the complete output match
 and issues a policy/publication-bound opaque receipt. Current readers reject historical v3 roots, including
 the Run 37533806963 demo release. That browsing record does not establish current-schema external acceptance.
@@ -97,6 +97,16 @@ The replacement is the hosted E2E from
 [the validator consolidation](https://github.com/dsx-ai-factory/nvkr/pull/306)
 removing `run artifact-test`. The scheduled passes do not establish acceptance of
 the retired upstream bootstrap interface or its negative/cleanup matrix.
+
+The scheduled [Run 43551381043](https://github.com/dsx-ai-factory/nvkr/actions/runs/43551381043)
+on November 14, 2026 failed before site creation: frozen NVKE
+`2f31480b360cbd7fc9d9db7a6ba274a8d0fd5049` required Go 1.27.4 in `go.work`, while the
+native-site controller producer explicitly passed a Go 1.27.3 image to its Dockerfile.
+That producer now pins `docker.io/library/golang@sha256:5e8afd493a7124a8586e134d9b532731161d4b9becf9dee5a5956b107426f93d`;
+registry configuration readback reports Go 1.27.4 for Linux AMD64 and ARM64. Source selection,
+`GOTOOLCHAIN=local` and the scheduled test remain unchanged. The pin update has no recorded hosted rerun;
+a maintainer must dispatch `nvkr-nightly.yml` with no inputs on the updated branch, then record the
+complete build/site/tenant/cleanup result. It does not change the historical scheduled passes above.
 
 Trusted source code retains sudo/Docker access on the disposable hosted machine.
 These unsigned local diagnostics grant no conformance or qualified release acceptance.

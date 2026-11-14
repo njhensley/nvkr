@@ -185,7 +185,7 @@ components:
     buildCommand:
     - sh
     - -ec
-    - buildctl-daemonless.sh build --frontend dockerfile.v0 --local context=/src/. --local dockerfile=/src/controller --opt platform=linux/{{.Arch}} --opt build-arg:GOLANG_IMAGE=docker.io/library/golang@sha256:957861185dbf29d93668ace41e011d091c6e779953d47f0316ef2cc58e28fe2b --opt "build-arg:BUILD_VERSION=$BUILD_VERSION" --opt "build-arg:GIT_VERSION=$GIT_VERSION" --opt "build-arg:SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" --output type=oci,dest=/src/bin/nvke-controller-image-{{.Arch}}.oci.tar,oci-mediatypes=true
+    - buildctl-daemonless.sh build --frontend dockerfile.v0 --local context=/src/. --local dockerfile=/src/controller --opt platform=linux/{{.Arch}} --opt build-arg:GOLANG_IMAGE=docker.io/library/golang@sha256:5e8afd493a7124a8586e134d9b532731161d4b9becf9dee5a5956b107426f93d --opt "build-arg:BUILD_VERSION=$BUILD_VERSION" --opt "build-arg:GIT_VERSION=$GIT_VERSION" --opt "build-arg:SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH" --output type=oci,dest=/src/bin/nvke-controller-image-{{.Arch}}.oci.tar,oci-mediatypes=true
   nvke-controller-chart:
     fromSource: true
     source: nvke-controller-helm
