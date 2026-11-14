@@ -7,18 +7,50 @@ description: Generated NVKR steps; regenerate with the complete Run bundle.
 runs:
   using: composite
   steps:
-    - name: Set up Go
+    - name: Scope the helper build cache to this Run attempt
+      shell: bash -e {0}
+      env:
+        NVKR_CACHE_SCOPE: ${{ github.repository_id }}:${{ github.run_id }}:${{ github.run_attempt }}
+        NVKR_CACHE_RUNNER: ${{ inputs.runner-artifact }}
+        NVKR_CACHE_HELPER: |+
+          -X main.version=dev -X main.commit=unknown
+
+      run: |-
+        set -eu
+        mkdir -p .nvkr/ci-bootstrap "$RUNNER_TEMP/nvkr-ci-go-cache/build" "$RUNNER_TEMP/nvkr-ci-go-cache/unused-modules"
+        printf '%s\n' "$NVKR_CACHE_SCOPE" "$NVKR_CACHE_RUNNER" "$NVKR_CACHE_HELPER" > .nvkr/ci-bootstrap/cache-key
+    - name: Provision the pinned Go bootstrap
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+      env:
+        GOCACHE: ${{ runner.temp }}/nvkr-ci-go-cache/build
+        GOMODCACHE: ${{ runner.temp }}/nvkr-ci-go-cache/unused-modules
+        GOTOOLCHAIN: local
+        GOENV: 'off'
+        GOWORK: 'off'
       with:
-        go-version-file: '.go-version'
-        cache: 'false'
-    - name: 'Install NVKR runner'
-      run: |
+        go-version-file: .go-version
+        cache: "true"
+        cache-dependency-path: |-
+          .nvkr/ci-bootstrap/cache-key
+          go.mod
+          go.sum
+          .go-version
+          cmd/**
+          client/**
+          internal/**
+          pkg/**
+    - name: Install NVKR runner
+      shell: bash -e {0}
+      env:
+        GOCACHE: ${{ runner.temp }}/nvkr-ci-go-cache/build
+        GOTOOLCHAIN: local
+        GOENV: 'off'
+        GOWORK: 'off'
+      run: |-
         set -eu
         export CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOBIN="$RUNNER_TEMP/nvkr-runner"
         go install -trimpath -ldflags '-X main.version=dev -X main.commit=unknown' ./cmd/nvkr
         mv "$GOBIN/nvkr" nvkr-exec
-      shell: bash -e {0}
     - name: Verify committed Run generation is current
       id: validate-catalog
       run: ./nvkr-exec run generate --engine github --definition inputs/definitions/nvke/gpu-site.composite.yaml --environment inputs/environments/github-development.yaml --root . --check

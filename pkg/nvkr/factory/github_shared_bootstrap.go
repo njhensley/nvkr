@@ -90,6 +90,17 @@ func shareGitHubBootstrap(plan *Plan, files map[string][]byte, oldPath string, c
 	}
 	value := *artifact
 	*artifact = *githubYAMLString("${{ inputs.runner-artifact }}")
+	if githubCIHelperCacheEnabled(plan) {
+		for _, step := range steps.Content {
+			env := githubYAMLField(step, "env")
+			if scope := githubYAMLField(env, "NVKR_CACHE_RUNNER"); scope != nil {
+				if scope.Value != value.Value {
+					return e.New(e.CodePipelineDrift, "bootstrap cache scope differs from its runner artifact")
+				}
+				*scope = *githubYAMLString("${{ inputs.runner-artifact }}")
+			}
+		}
+	}
 	githubYAMLSet(inputs, "runner-artifact", githubActionInput("Same-Run helper artifact name"))
 	githubYAMLSet(action, "name", githubYAMLString("Build NVKR runner"))
 	raw, err := encodeGitHubYAML(&document)

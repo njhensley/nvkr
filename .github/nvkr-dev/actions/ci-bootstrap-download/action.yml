@@ -46,13 +46,14 @@ runs:
       shell: bash
       env:
         NVKR_CACHE_SCOPE: ${{ github.repository_id }}:${{ github.run_id }}:${{ github.run_attempt }}
+        NVKR_CACHE_RUNNER: ${{ inputs.name }}
         NVKR_CACHE_HELPER: |+
           -X main.version=dev -X main.commit=unknown
 
       run: |-
         set -eu
         mkdir -p .nvkr/ci-bootstrap "$RUNNER_TEMP/nvkr-ci-go-cache/build" "$RUNNER_TEMP/nvkr-ci-go-cache/unused-modules"
-        printf '%s\n' "$NVKR_CACHE_SCOPE" "$NVKR_CACHE_HELPER" > .nvkr/ci-bootstrap/cache-key
+        printf '%s\n' "$NVKR_CACHE_SCOPE" "$NVKR_CACHE_RUNNER" "$NVKR_CACHE_HELPER" > .nvkr/ci-bootstrap/cache-key
     - name: Provision the pinned Go bootstrap
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
       env:
@@ -73,11 +74,13 @@ runs:
           client/**
           internal/**
           pkg/**
+      id: helper-go
     - name: Build private transport helper
       shell: bash
       env:
         GOTOOLCHAIN: local
         NVKR_CI_GO_BUILD_CACHE: ${{ runner.temp }}/nvkr-ci-go-cache/build
+        NVKR_CI_GO_CACHE_HIT: ${{ steps.helper-go.outputs.cache-hit }}
       run: |-
         set +x +v
         set -eu
@@ -234,8 +237,14 @@ runs:
             build_cache = os.environ.get("NVKR_CI_GO_BUILD_CACHE", os.path.join(cache, "build"))
             if "NVKR_CI_GO_BUILD_CACHE" in os.environ:
                 expected = os.path.join(runner_temp, "nvkr-ci-go-cache", "build")
-                if build_cache != expected or os.path.islink(build_cache) or not os.path.isdir(build_cache):
+                if build_cache != expected or os.path.islink(os.path.dirname(build_cache)) or os.path.islink(build_cache) or not os.path.isdir(build_cache):
                     raise ValueError("invalid helper build cache")
+                hit = os.environ.get("NVKR_CI_GO_CACHE_HIT", "")
+                if hit not in ("true", "false", ""):
+                    raise ValueError("invalid helper cache result")
+                if hit != "true":
+                    shutil.rmtree(os.path.dirname(build_cache))
+                    build_cache = os.path.join(cache, "build")
             env.update(CGO_ENABLED="0", GOTOOLCHAIN="local", GOENV="off", GOWORK="off",
                        GOCACHE=build_cache, GOMODCACHE=os.path.join(cache, "modules"))
             deadline = time.monotonic() + 900

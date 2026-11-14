@@ -1,11 +1,15 @@
 ## Support by owner
 
-Private-download helper compilation now uses a dedicated Go build cache scoped to the repository,
-Run and attempt, helper sources and embedded assets, module manifests, linker stamp, published-module
-pin and setup-go's platform/toolchain key. Module acquisition retains its fresh disposable cache;
-per-job compilation and private binary transport remain. Local contracts cover retained build-cache use
-and cleanup through success, failure and cancellation, credential stripping and rejection of weakened
-generated cache bindings. Hosted cache restoration, hit rates and timing improvements remain unmeasured.
+Only the `nvkr-dev` bundle enables helper build caching. Bootstrap jobs are the designated writers;
+consumers use exact hits and remove the cache directories on a miss before compiling in disposable
+storage. The key separates repository, Run, attempt and runner artifact label as well as helper source,
+module, linker and toolchain inputs. Production bundles keep caching disabled. Per-job compilation,
+fresh dependency acquisition and private binary transport remain. Local contracts cover hit/miss
+lifetimes, consumer save prevention, writer coverage and weakened-binding refusal. The key does not
+authenticate cache contents or the writer: another workflow with cache write access in the branch scope
+can prepopulate it. Development bootstrap and signing jobs accept that additional cache trust, including
+archive extraction outside the expected cache directory. Hosted restoration, hits and timing remain
+unmeasured; the OS validation workflow retains its separate no-cache rule.
 
 Tekton implements ADR-18's explicit cluster trust contract. The provider authenticates
 complete PipelineRun, TaskRun and PVC bindings and binds carrier bytes to successful task results. Controlled

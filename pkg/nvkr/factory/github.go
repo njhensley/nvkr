@@ -224,12 +224,22 @@ func renderGitHubFlat(ctx context.Context, plan *Plan, validate bool) (*Generate
 			writeGitHubRunSummary(&body, githubRunStartSummary(plan))
 		}
 		actions.writeCheckoutStep(&body)
-		actions.writeSetupGoStep(&body, release)
 		helperEnvironment, err := githubRunnerHelperEnvironment(plan, runner)
 		if err != nil {
 			return nil, err
 		}
-		writeGitHubShellStep(&body, githubRunnerInstallStep, []string{githubRunnerInstallCommand(helperEnvironment, linkerFlags, release)})
+		if githubCIHelperCacheEnabled(plan) {
+			raw, err := encodeGitHubYAML(githubCICacheWriterSteps(actions, release, linkerFlags, "nvkr-exec-"+shortStableName(runner), helperEnvironment))
+			if err != nil {
+				return nil, err
+			}
+			for _, line := range strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n") {
+				fmt.Fprintf(&body, "      %s\n", line)
+			}
+		} else {
+			actions.writeSetupGoStep(&body, release)
+			writeGitHubShellStep(&body, githubRunnerInstallStep, []string{githubRunnerInstallCommand(helperEnvironment, linkerFlags, release)})
+		}
 		command := generationCommand(plan, EngineGitHub)
 		if plan.Environment.GitHubRuntimePlan {
 			if runner == sortedKeys(bootstrapJobs)[0] {

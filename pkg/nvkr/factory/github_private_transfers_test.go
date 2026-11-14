@@ -22,7 +22,7 @@ import (
 	yamlv3 "go.yaml.in/yaml/v3"
 )
 
-func TestGitHubPrivateBootstrapOwnsAndDiscardsItsCaches(t *testing.T) {
+func TestGitHubPrivateBootstrapCacheHitAndMissLifetimes(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	if err != nil {
 		t.Skip("Python 3 is required to exercise the hosted bootstrap owner")
@@ -35,14 +35,19 @@ func TestGitHubPrivateBootstrapOwnsAndDiscardsItsCaches(t *testing.T) {
 		name   string
 		code   e.Code
 		cached bool
+		hit    string
 	}{
 		{name: "success"},
 		{name: "build failure", code: e.CodeBuildFailed},
 		{name: "cancellation", code: e.CodeTimeout},
 		{name: "missing runner temporary directory", code: e.CodeEngineCapability},
-		{name: "cached success", cached: true},
-		{name: "cached build failure", cached: true, code: e.CodeBuildFailed},
-		{name: "cached cancellation", cached: true, code: e.CodeTimeout},
+		{name: "cached success", cached: true, hit: "true"},
+		{name: "cached build failure", cached: true, hit: "true", code: e.CodeBuildFailed},
+		{name: "cached cancellation", cached: true, hit: "true", code: e.CodeTimeout},
+		{name: "miss success", cached: true, hit: "false"},
+		{name: "miss build failure", cached: true, hit: "false", code: e.CodeBuildFailed},
+		{name: "miss cancellation", cached: true, hit: "false", code: e.CodeTimeout},
+		{name: "empty miss success", cached: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root, runnerTemp, ambient := t.TempDir(), t.TempDir(), t.TempDir()
@@ -52,6 +57,9 @@ func TestGitHubPrivateBootstrapOwnsAndDiscardsItsCaches(t *testing.T) {
 					t.Fatal(err)
 				}
 				if err := os.WriteFile(filepath.Join(buildCache, "restored"), []byte("same-Run cache"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.MkdirAll(filepath.Join(filepath.Dir(buildCache), "unused-modules"), 0700); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -111,14 +119,14 @@ PY
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
-			command := exec.CommandContext(ctx, bash, "-c", githubCIBootstrapBuildCommand("-X main.version=fixture", githubRunnerRelease{}))
+			command := exec.CommandContext(ctx, bash, "-c", githubCIBootstrapBuildCommand("-X main.version=fixture", githubRunnerRelease{}, true))
 			command.Dir = root
 			command.Env = append(os.Environ(), "PATH="+root+string(os.PathListSeparator)+os.Getenv("PATH"),
 				"RUNNER_TEMP="+selectedTemp, "GOCACHE="+ambient, "GOMODCACHE="+ambient,
 				"PYTHONPATH="+root, "NVKR_CREDENTIAL=must-not-inherit", "NVKR_CI_STORAGE_TOKEN=must-not-inherit",
 				"ACTIONS_ID_TOKEN_REQUEST_TOKEN=must-not-inherit", "GOPROXY=must-not-inherit")
 			if test.cached {
-				command.Env = append(command.Env, "NVKR_CI_GO_BUILD_CACHE="+buildCache)
+				command.Env = append(command.Env, "NVKR_CI_GO_BUILD_CACHE="+buildCache, "NVKR_CI_GO_CACHE_HIT="+test.hit)
 			}
 			output, runErr := command.CombinedOutput()
 			if test.code == "" {
@@ -135,7 +143,7 @@ PY
 				t.Fatal("bootstrap diagnostic exposed an inherited credential")
 			}
 			entries, err := os.ReadDir(runnerTemp)
-			if test.cached {
+			if test.hit == "true" {
 				if err != nil || len(entries) != 1 || entries[0].Name() != "nvkr-ci-go-cache" {
 					t.Fatalf("bootstrap did not retain only the dedicated build cache: %v / %v", entries, err)
 				}
@@ -310,7 +318,7 @@ PY
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 			defer cancel()
-			command := exec.CommandContext(ctx, bash, "-c", githubCIBootstrapBuildCommand("-X main.version=fixture", githubRunnerRelease{}))
+			command := exec.CommandContext(ctx, bash, "-c", githubCIBootstrapBuildCommand("-X main.version=fixture", githubRunnerRelease{}, false))
 			command.Dir = root
 			command.Env = append(os.Environ(), "PATH="+root+string(os.PathListSeparator)+os.Getenv("PATH"), "RUNNER_TEMP="+runnerTemp,
 				"NVKR_CREDENTIAL=must-not-inherit", "NVKR_CI_STORAGE_TOKEN=must-not-inherit", "ACTIONS_ID_TOKEN_REQUEST_TOKEN=must-not-inherit",
@@ -413,7 +421,7 @@ func TestGitHubPrivateBootstrapRejectsUnownedBuildCache(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
-			command := exec.CommandContext(ctx, bash, "-c", githubCIBootstrapBuildCommand("-X main.version=fixture", githubRunnerRelease{}))
+			command := exec.CommandContext(ctx, bash, "-c", githubCIBootstrapBuildCommand("-X main.version=fixture", githubRunnerRelease{}, true))
 			command.Dir = root
 			command.Env = append(os.Environ(), "PATH="+root+string(os.PathListSeparator)+os.Getenv("PATH"),
 				"RUNNER_TEMP="+runnerTemp, "NVKR_CI_GO_BUILD_CACHE="+cache)
@@ -470,8 +478,11 @@ func TestGitHubPrivateTransfersExposeOnlyLocatorsToActions(t *testing.T) {
 						if name == githubCITransferPath(plan, "bootstrap-download")+"/action.yml" {
 							builds++
 							// Test binaries are development builds, which build the runner from source.
-							if githubYAMLValue(with, "cache") != "true" || githubYAMLValue(with, "go-version-file") != ".go-version" || githubYAMLField(with, "go-version") != nil {
+							if githubYAMLValue(with, "cache") != strconv.FormatBool(githubCIHelperCacheEnabled(plan)) || githubYAMLValue(with, "go-version-file") != ".go-version" || githubYAMLField(with, "go-version") != nil {
 								t.Fatal("private helper bootstrap does not provision the pinned toolchain")
+							}
+							if !githubCIHelperCacheEnabled(plan) {
+								return nil
 							}
 							if githubYAMLValue(with, "cache-dependency-path") != ".nvkr/ci-bootstrap/cache-key\ngo.mod\ngo.sum\n.go-version\ncmd/**\nclient/**\ninternal/**\npkg/**" {
 								t.Fatal("helper cache key omits its scope, source or embedded assets")
@@ -667,26 +678,6 @@ func TestGitHubPrivateTransfersRejectPayloadFallbackAndCredentialTampering(t *te
 		{"public fallback", githubCITransferPath(plan, "upload") + "/action.yml", func(root *yamlv3.Node) {
 			step := githubTestYAMLStep(t, githubTestYAMLField(t, root, "runs", "steps"), "id", "store")
 			githubTestYAMLField(t, step, "run").Value += " || true"
-		}},
-		{"disable helper cache", githubCITransferPath(plan, "bootstrap-download") + "/action.yml", func(root *yamlv3.Node) {
-			step := githubTestYAMLStep(t, githubTestYAMLField(t, root, "runs", "steps"), "uses", plan.Actions["setup-go"].Uses())
-			githubTestYAMLField(t, step, "with", "cache").Value = "false"
-		}},
-		{"dependency-only cache key", githubCITransferPath(plan, "bootstrap-download") + "/action.yml", func(root *yamlv3.Node) {
-			step := githubTestYAMLStep(t, githubTestYAMLField(t, root, "runs", "steps"), "uses", plan.Actions["setup-go"].Uses())
-			githubTestYAMLField(t, step, "with", "cache-dependency-path").Value = "go.sum"
-		}},
-		{"ambient Go settings", githubCITransferPath(plan, "bootstrap-download") + "/action.yml", func(root *yamlv3.Node) {
-			step := githubTestYAMLStep(t, githubTestYAMLField(t, root, "runs", "steps"), "uses", plan.Actions["setup-go"].Uses())
-			githubYAMLRemove(githubYAMLField(step, "env"), "GOTOOLCHAIN")
-		}},
-		{"cross-Run cache scope", githubCITransferPath(plan, "bootstrap-download") + "/action.yml", func(root *yamlv3.Node) {
-			step := githubTestYAMLField(t, root, "runs", "steps").Content[0]
-			githubTestYAMLField(t, step, "env", "NVKR_CACHE_SCOPE").Value = "shared"
-		}},
-		{"ambient helper cache", githubCITransferPath(plan, "bootstrap-download") + "/action.yml", func(root *yamlv3.Node) {
-			step := githubTestYAMLStep(t, githubTestYAMLField(t, root, "runs", "steps"), "name", "Build private transport helper")
-			githubTestYAMLField(t, step, "env", "NVKR_CI_GO_BUILD_CACHE").Value = "/tmp/ambient-cache"
 		}},
 		{"missing locator context", githubCITransferPath(plan, "download") + "/action.yml", func(root *yamlv3.Node) {
 			step := githubTestYAMLStep(t, githubTestYAMLField(t, root, "runs", "steps"), "name", "Download metadata and private locators")
@@ -917,7 +908,7 @@ PY
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
-			command := exec.CommandContext(ctx, bash, "-c", githubCIBootstrapBuildCommand("-X main.version=fixture", testRunnerRelease))
+			command := exec.CommandContext(ctx, bash, "-c", githubCIBootstrapBuildCommand("-X main.version=fixture", testRunnerRelease, false))
 			command.Dir = root
 			command.Env = append(os.Environ(), "PATH="+root+string(os.PathListSeparator)+os.Getenv("PATH"), "RUNNER_TEMP="+runnerTemp)
 			output, runErr := command.CombinedOutput()
@@ -940,6 +931,217 @@ PY
 			}
 			if entries, err := os.ReadDir(runnerTemp); err != nil || len(entries) != 0 {
 				t.Fatalf("bootstrap left disposable caches behind: %v / %v", entries, err)
+			}
+		})
+	}
+}
+
+func TestGitHubHelperCacheRejectsWeakenedBindings(t *testing.T) {
+	plan := githubDevelopmentTestPlan(t)
+	bundle, err := RenderGitHub(t.Context(), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, bootstrapMember := githubTestBootstrap(t, bundle)
+	for _, test := range []struct {
+		name, member string
+		mutate       func(*yamlv3.Node)
+	}{
+		{"disable helper cache", githubCITransferPath(plan, "bootstrap-download") + "/action.yml", func(root *yamlv3.Node) {
+			step := githubTestYAMLStep(t, githubTestYAMLField(t, root, "runs", "steps"), "uses", plan.Actions["setup-go"].Uses())
+			githubTestYAMLField(t, step, "with", "cache").Value = "false"
+		}},
+		{"dependency-only cache key", githubCITransferPath(plan, "bootstrap-download") + "/action.yml", func(root *yamlv3.Node) {
+			step := githubTestYAMLStep(t, githubTestYAMLField(t, root, "runs", "steps"), "uses", plan.Actions["setup-go"].Uses())
+			githubTestYAMLField(t, step, "with", "cache-dependency-path").Value = "go.sum"
+		}},
+		{"ambient Go settings", githubCITransferPath(plan, "bootstrap-download") + "/action.yml", func(root *yamlv3.Node) {
+			step := githubTestYAMLStep(t, githubTestYAMLField(t, root, "runs", "steps"), "uses", plan.Actions["setup-go"].Uses())
+			githubYAMLRemove(githubYAMLField(step, "env"), "GOTOOLCHAIN")
+		}},
+		{"cross-Run cache scope", githubCITransferPath(plan, "bootstrap-download") + "/action.yml", func(root *yamlv3.Node) {
+			step := githubTestYAMLField(t, root, "runs", "steps").Content[0]
+			githubTestYAMLField(t, step, "env", "NVKR_CACHE_SCOPE").Value = "shared"
+		}},
+		{"ambient helper cache", githubCITransferPath(plan, "bootstrap-download") + "/action.yml", func(root *yamlv3.Node) {
+			step := githubTestYAMLStep(t, githubTestYAMLField(t, root, "runs", "steps"), "name", "Build private transport helper")
+			githubTestYAMLField(t, step, "env", "NVKR_CI_GO_BUILD_CACHE").Value = "/tmp/ambient-cache"
+		}},
+
+		{"bootstrap writer environment", bootstrapMember, func(root *yamlv3.Node) {
+			step := githubTestYAMLStep(t, githubTestYAMLField(t, root, "runs", "steps"), "name", githubRunnerInstallStep)
+			githubYAMLSet(githubYAMLField(step, "env"), "UNEXPECTED_TOKEN", githubYAMLString("credential"))
+		}},
+		{"runner label removed", githubCITransferPath(plan, "bootstrap-download") + "/action.yml", func(root *yamlv3.Node) {
+			step := githubTestYAMLField(t, root, "runs", "steps").Content[0]
+			githubYAMLRemove(githubYAMLField(step, "env"), "NVKR_CACHE_RUNNER")
+		}},
+		{"consumer writes on miss", githubCITransferPath(plan, "bootstrap-download") + "/action.yml", func(root *yamlv3.Node) {
+			step := githubTestYAMLStep(t, githubTestYAMLField(t, root, "runs", "steps"), "name", "Build private transport helper")
+			githubTestYAMLField(t, step, "env", "NVKR_CI_GO_CACHE_HIT").Value = "true"
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			changed := mutateGitHubBundleYAML(t, bundle, test.member, test.mutate)
+			assertFactoryErrorCode(t, ValidateGitHubBundle(t.Context(), plan, changed), e.CodeEngineCapability)
+		})
+	}
+}
+
+func TestGitHubHelperCacheConsumersCannotSave(t *testing.T) {
+	plan := githubDevelopmentTestPlan(t)
+	bundle, err := RenderGitHub(t.Context(), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	documents, err := githubCIActionDocuments(plan, bundle.Files[bundle.WorkflowPath], bundle.Files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	consumer := githubCITransferPath(plan, "bootstrap-download") + "/action.yml"
+	seen := false
+	for name, document := range documents {
+		if err := githubCIWalkSteps(document, func(step *yamlv3.Node) error {
+			if githubYAMLValue(step, "uses") != plan.Actions["setup-go"].Uses() || githubYAMLValue(githubYAMLField(step, "with"), "cache") != "true" {
+				return nil
+			}
+			if name != consumer {
+				if !strings.HasPrefix(name, githubActionsDirectoryFor(plan)+"bootstrap-") {
+					t.Fatalf("non-bootstrap cache writer in %s", name)
+				}
+				return nil
+			}
+			seen = true
+			if githubYAMLValue(step, "id") != "helper-go" {
+				t.Fatal("consumer cache hit is not bound to setup-go")
+			}
+			steps := githubTestYAMLField(t, document.Content[0], "runs", "steps")
+			build := githubTestYAMLStep(t, steps, "name", "Build private transport helper")
+			if githubYAMLValue(githubYAMLField(build, "env"), "NVKR_CI_GO_CACHE_HIT") != "${{ steps.helper-go.outputs.cache-hit }}" {
+				t.Fatal("consumer can treat a miss as a hit")
+			}
+			linker, err := generatorLinkerFlags(plan.GeneratorVersion)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if githubYAMLValue(build, "run") != githubCIBootstrapBuildCommand(linker, githubRunnerRelease{}, true) {
+				t.Fatal("consumer bypasses tested cache-miss cleanup")
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !seen {
+		t.Fatal("fixture has no cache consumer")
+	}
+}
+
+func TestGitHubHelperCacheEveryConsumerRunnerHasBootstrapWriter(t *testing.T) {
+	for _, fixture := range []struct {
+		name string
+		plan func(*testing.T) *Plan
+	}{
+		{"hosted", githubDevelopmentTestPlan},
+		{"signed", githubDevelopmentPublicationTestPlan},
+		{"arc amd64", func(t *testing.T) *Plan {
+			return developmentPublicationPlan(t, arcTestPlan(t, "linux/amd64"), "ghcr.io/example/nvkr/development")
+		}},
+		{"arc arm64", func(t *testing.T) *Plan {
+			return developmentPublicationPlan(t, arcTestPlan(t, "linux/arm64"), "ghcr.io/example/nvkr/development")
+		}},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			plan := fixture.plan(t)
+			bundle, err := RenderGitHub(t.Context(), plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			workflow := decodeGitHubWorkflow(t, expandedGitHubWorkflow(t, bundle))
+			writers := map[string]string{}
+			for id, job := range workflow.Jobs {
+				if !strings.HasPrefix(id, "build-runner-") {
+					continue
+				}
+				artifact, scope, cache, buildCache := "", "", false, false
+				for _, step := range job.Steps {
+					if step.Name == "Upload NVKR runner" {
+						artifact = step.With["name"]
+					}
+					if step.Env["NVKR_CACHE_RUNNER"] != "" {
+						scope = step.Env["NVKR_CACHE_RUNNER"]
+					}
+					if step.Uses == plan.Actions["setup-go"].Uses() {
+						cache = step.With["cache"] == "true" && step.With["cache-dependency-path"] == githubCIBootstrapCacheInputs
+					}
+					if step.Name == githubRunnerInstallStep {
+						buildCache = step.Env["GOCACHE"] == "${{ runner.temp }}/nvkr-ci-go-cache/build"
+					}
+				}
+				if artifact == "" || artifact != scope || !cache || !buildCache || writers[artifact] != "" {
+					t.Fatalf("bootstrap %s has no unique matching cache writer", id)
+				}
+				writers[artifact] = id
+			}
+			consumers := 0
+			for id, job := range workflow.Jobs {
+				for _, step := range job.Steps {
+					if step.Name != "Download NVKR runner" {
+						continue
+					}
+					consumers++
+					writer := writers[step.With["name"]]
+					if writer == "" {
+						t.Fatalf("consumer %s on %s lacks writer for %s", id, job.RunsOn, step.With["name"])
+					}
+					visited := map[string]bool{}
+					var depends func(string) bool
+					depends = func(current string) bool {
+						if visited[current] {
+							return false
+						}
+						visited[current] = true
+						for _, need := range workflow.Jobs[current].Needs {
+							if need == writer || depends(need) {
+								return true
+							}
+						}
+						return false
+					}
+					if !depends(id) {
+						t.Fatalf("consumer %s can run before cache writer %s", id, writer)
+					}
+				}
+			}
+			if consumers == 0 {
+				t.Fatal("fixture has no helper consumers")
+			}
+		})
+	}
+}
+
+func TestGitHubHelperCacheRolloutScope(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		development bool
+		bundle      string
+		enabled     bool
+	}{
+		{"production", false, "", false},
+		{"production family", false, "nvke-telemetry", false},
+		{"development", true, "", true},
+		{"other development", true, "other", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			plan := &Plan{}
+			plan.Environment.GitHubDevelopment = test.development
+			plan.Environment.GitHubBundle = test.bundle
+			if githubCIHelperCacheEnabled(plan) != test.enabled {
+				t.Fatal("helper caching escaped the nvkr-dev rollout")
+			}
+			command := githubCIBootstrapBuildCommand("fixture", githubRunnerRelease{}, githubCIHelperCacheEnabled(plan))
+			if strings.Contains(command, "NVKR_CI_GO_BUILD_CACHE") != test.enabled {
+				t.Fatal("uncached supervisor can accept a cache opt-in from the runner environment")
 			}
 		})
 	}

@@ -193,14 +193,31 @@ const githubCIPublishedSourcePython = `def published_source(cache, env, deadline
 // The source bootstrap retries only the observed public-proxy module body
 // failure, then compiles once offline. Every child shares one deadline and is
 // stopped and joined before its disposable module cache is removed. Only the
-// explicitly selected, same-Run build cache survives for setup-go's post step.
-func githubCIBootstrapBuildCommand(linker string, release githubRunnerRelease) string {
+// explicitly selected cache hit can supply compilation inputs. Consumers discard
+// cache misses before compilation so setup-go's post step has nothing to save.
+func githubCIBootstrapBuildCommand(linker string, release githubRunnerRelease, cacheEnabled bool) string {
 	// A development build compiles the checkout's own source. Only a pinned
 	// release carries the published-module acquisition and its checks.
 	publishedSource, sourceExpression := "", `"."`
 	if release.Version != "" {
 		publishedSource = fmt.Sprintf(githubCIPublishedSourcePython, githubRunnerModule, release.Version, release.Sum)
 		sourceExpression = "published_source(cache, env, deadline)"
+	}
+	cacheSelection, buildCache := "", `os.path.join(cache, "build")`
+	if cacheEnabled {
+		buildCache = "build_cache"
+		cacheSelection = `    build_cache = os.environ.get("NVKR_CI_GO_BUILD_CACHE", os.path.join(cache, "build"))
+    if "NVKR_CI_GO_BUILD_CACHE" in os.environ:
+        expected = os.path.join(runner_temp, "nvkr-ci-go-cache", "build")
+        if build_cache != expected or os.path.islink(os.path.dirname(build_cache)) or os.path.islink(build_cache) or not os.path.isdir(build_cache):
+            raise ValueError("invalid helper build cache")
+        hit = os.environ.get("NVKR_CI_GO_CACHE_HIT", "")
+        if hit not in ("true", "false", ""):
+            raise ValueError("invalid helper cache result")
+        if hit != "true":
+            shutil.rmtree(os.path.dirname(build_cache))
+            build_cache = os.path.join(cache, "build")
+`
 	}
 	return fmt.Sprintf(`set +x +v
 set -eu
@@ -354,13 +371,8 @@ def download(args, env, deadline, cwd, check):
 %[8]sdef build(cache):
     # Never pass repository, registry or OIDC credentials to either Go process.
     env = {key: os.environ[key] for key in ("PATH", "HOME", "TMPDIR", "GOROOT") if key in os.environ}
-    build_cache = os.environ.get("NVKR_CI_GO_BUILD_CACHE", os.path.join(cache, "build"))
-    if "NVKR_CI_GO_BUILD_CACHE" in os.environ:
-        expected = os.path.join(runner_temp, "nvkr-ci-go-cache", "build")
-        if build_cache != expected or os.path.islink(build_cache) or not os.path.isdir(build_cache):
-            raise ValueError("invalid helper build cache")
-    env.update(CGO_ENABLED="0", GOTOOLCHAIN="local", GOENV="off", GOWORK="off",
-               GOCACHE=build_cache, GOMODCACHE=os.path.join(cache, "modules"))
+%[10]s    env.update(CGO_ENABLED="0", GOTOOLCHAIN="local", GOENV="off", GOWORK="off",
+               GOCACHE=%[11]s, GOMODCACHE=os.path.join(cache, "modules"))
     deadline = time.monotonic() + 900
     check_deadline(deadline)
     source = %[9]s
@@ -409,7 +421,7 @@ if canceled and result != %[5]d:
 sys.exit(result)
 PY`, e.CodeEngineCapability, e.ExitCode(e.New(e.CodeEngineCapability, "")), shellQuote(linker),
 		e.CodeTimeout, e.ExitCode(e.New(e.CodeTimeout, "")), e.CodeBuildFailed, e.ExitCode(e.New(e.CodeBuildFailed, "")),
-		publishedSource, sourceExpression)
+		publishedSource, sourceExpression, cacheSelection, buildCache)
 }
 
 // setup-go hashes these inputs and supplies its full primary key without restore
@@ -418,15 +430,38 @@ PY`, e.CodeEngineCapability, e.ExitCode(e.New(e.CodeEngineCapability, "")), shel
 // binds its complete module checksum in the scope file.
 const githubCIBootstrapCacheInputs = ".nvkr/ci-bootstrap/cache-key\ngo.mod\ngo.sum\n.go-version\ncmd/**\nclient/**\ninternal/**\npkg/**"
 
-func githubCIBootstrapCacheStep(linker string, release githubRunnerRelease) *yamlv3.Node {
+// Keep the rollout decision in one place. Production remains uncached.
+func githubCIHelperCacheEnabled(plan *Plan) bool {
+	return githubLayoutFor(plan).planPath == GitHubDevelopmentPlanPath
+}
+
+func githubCIBootstrapCacheStep(linker string, release githubRunnerRelease, artifact string) *yamlv3.Node {
 	return githubYAMLMap("name", githubYAMLString("Scope the helper build cache to this Run attempt"),
 		"shell", githubYAMLString("bash"),
 		"env", githubYAMLMap(
 			"NVKR_CACHE_SCOPE", githubYAMLString("${{ github.repository_id }}:${{ github.run_id }}:${{ github.run_attempt }}"),
+			"NVKR_CACHE_RUNNER", githubYAMLString(artifact),
 			"NVKR_CACHE_HELPER", githubYAMLString(linker+"\n"+release.Version+"\n"+release.Sum)),
 		"run", githubYAMLString(`set -eu
 mkdir -p .nvkr/ci-bootstrap "$RUNNER_TEMP/nvkr-ci-go-cache/build" "$RUNNER_TEMP/nvkr-ci-go-cache/unused-modules"
-printf '%s\n' "$NVKR_CACHE_SCOPE" "$NVKR_CACHE_HELPER" > .nvkr/ci-bootstrap/cache-key`))
+printf '%s\n' "$NVKR_CACHE_SCOPE" "$NVKR_CACHE_RUNNER" "$NVKR_CACHE_HELPER" > .nvkr/ci-bootstrap/cache-key`))
+}
+
+func githubCICachedSetupGo(actions githubActionRefs, release githubRunnerRelease) *yamlv3.Node {
+	key, value := githubSetupGoWith(release)
+	return githubYAMLMap("name", githubYAMLString("Provision the pinned Go bootstrap"), "uses", githubYAMLString(actions.SetupGo),
+		"env", githubYAMLMap("GOCACHE", githubYAMLString("${{ runner.temp }}/nvkr-ci-go-cache/build"), "GOMODCACHE", githubYAMLString("${{ runner.temp }}/nvkr-ci-go-cache/unused-modules"), "GOTOOLCHAIN", githubYAMLString("local"), "GOENV", githubYAMLString("off"), "GOWORK", githubYAMLString("off")),
+		"with", githubYAMLMap(key, githubYAMLString(value), "cache", githubYAMLString("true"), "cache-dependency-path", githubYAMLString(githubCIBootstrapCacheInputs)))
+}
+
+func githubCICacheWriterSteps(actions githubActionRefs, release githubRunnerRelease, linker, artifact, helperEnvironment string) *yamlv3.Node {
+	return &yamlv3.Node{Kind: yamlv3.SequenceNode, Tag: "!!seq", Content: []*yamlv3.Node{
+		githubCIBootstrapCacheStep(linker, release, artifact),
+		githubCICachedSetupGo(actions, release),
+		githubYAMLMap("name", githubYAMLString(githubRunnerInstallStep), "shell", githubYAMLString("bash -e {0}"),
+			"env", githubYAMLMap("GOCACHE", githubYAMLString("${{ runner.temp }}/nvkr-ci-go-cache/build"), "GOTOOLCHAIN", githubYAMLString("local"), "GOENV", githubYAMLString("off"), "GOWORK", githubYAMLString("off")),
+			"run", githubYAMLString(githubRunnerInstallCommand(helperEnvironment, linker, release))),
+	}}
 }
 
 func githubCITransferTemplates(plan *Plan, actions githubActionRefs) (map[string][]byte, error) {
@@ -463,12 +498,17 @@ func githubCITransferTemplates(plan *Plan, actions githubActionRefs) (map[string
 			// disposable, and ambient runner modules must never enter this cache.
 			// Its go env queries must use the installed toolchain even when the
 			// consumer checkout's module/workspace selects a different Go version.
-			steps.Content = append(steps.Content,
-				githubCIBootstrapCacheStep(linker, release),
-				githubYAMLMap("name", githubYAMLString("Provision the pinned Go bootstrap"), "uses", githubYAMLString(actions.SetupGo),
-					"env", githubYAMLMap("GOCACHE", githubYAMLString("${{ runner.temp }}/nvkr-ci-go-cache/build"), "GOMODCACHE", githubYAMLString("${{ runner.temp }}/nvkr-ci-go-cache/unused-modules"), "GOTOOLCHAIN", githubYAMLString("local"), "GOENV", githubYAMLString("off"), "GOWORK", githubYAMLString("off")),
-					"with", githubYAMLMap(key, githubYAMLString(value), "cache", githubYAMLString("true"), "cache-dependency-path", githubYAMLString(githubCIBootstrapCacheInputs))),
-				githubYAMLMap("name", githubYAMLString("Build private transport helper"), "shell", githubYAMLString("bash"), "env", githubYAMLMap("GOTOOLCHAIN", githubYAMLString("local"), "NVKR_CI_GO_BUILD_CACHE", githubYAMLString("${{ runner.temp }}/nvkr-ci-go-cache/build")), "run", githubYAMLString(githubCIBootstrapBuildCommand(linker, release))))
+			setup := githubYAMLMap("name", githubYAMLString("Provision the pinned Go bootstrap"), "uses", githubYAMLString(actions.SetupGo), "with", githubYAMLMap(key, githubYAMLString(value), "cache", githubYAMLString("false")))
+			buildEnv := githubYAMLMap("GOTOOLCHAIN", githubYAMLString("local"))
+			if githubCIHelperCacheEnabled(plan) {
+				steps.Content = append(steps.Content, githubCIBootstrapCacheStep(linker, release, "${{ inputs.name }}"))
+				setup = githubCICachedSetupGo(actions, release)
+				githubYAMLSet(setup, "id", githubYAMLString("helper-go"))
+				githubYAMLSet(buildEnv, "NVKR_CI_GO_BUILD_CACHE", githubYAMLString("${{ runner.temp }}/nvkr-ci-go-cache/build"))
+				githubYAMLSet(buildEnv, "NVKR_CI_GO_CACHE_HIT", githubYAMLString("${{ steps.helper-go.outputs.cache-hit }}"))
+			}
+			steps.Content = append(steps.Content, setup,
+				githubYAMLMap("name", githubYAMLString("Build private transport helper"), "shell", githubYAMLString("bash"), "env", buildEnv, "run", githubYAMLString(githubCIBootstrapBuildCommand(linker, release, githubCIHelperCacheEnabled(plan)))))
 		}
 		steps.Content = append(steps.Content, githubYAMLMap("name", githubYAMLString("Create a fresh locator directory"), "id", githubYAMLString("directory"), "shell", githubYAMLString("bash"), "run", githubYAMLString("set -eu\ndirectory=$(mktemp -d \"$RUNNER_TEMP/nvkr-ci-index.XXXXXX\")\nprintf 'path=%s\\n' \"$directory\" >> \"$GITHUB_OUTPUT\"")))
 		username := "${{ env.NVKR_CI_STORAGE_READ_USER }}"

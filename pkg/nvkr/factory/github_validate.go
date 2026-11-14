@@ -264,8 +264,19 @@ func validateGitHubBundleFlat(ctx context.Context, plan *Plan, bundle *Generated
 		}
 		wantSourceEnv := sourceEnvironments[jobID]
 		foundSource := false
-		for _, step := range job.Steps {
+		cacheWriter := false
+		if githubCIHelperCacheEnabled(plan) {
+			for _, writer := range bootstrap {
+				cacheWriter = cacheWriter || writer == jobID
+			}
+		}
+		for index, step := range job.Steps {
 			if len(step.Env) == 0 {
+				continue
+			}
+			if cacheWriter && index >= 1 && index <= 3 {
+				// The bootstrap pass below compares all three complete steps,
+				// including their environment, against the fixed cache writer.
 				continue
 			}
 			if stage, ok := byNodeForJob(stages, jobID); ok && len(githubStagePrivateImages(plan, stage)) > 0 &&
@@ -376,6 +387,9 @@ func validateGitHubBundleFlat(ctx context.Context, plan *Plan, bundle *Generated
 			}
 		}
 		wantCondition := "${{ " + githubDispatchCondition(plan) + " }}"
+		if githubCIHelperCacheEnabled(plan) {
+			wantSteps++
+		}
 		if !ok || job.RunsOn != githubBootstrapRunner(runner) || job.If != wantCondition || len(job.Steps) != wantSteps || job.Steps[0].Uses != actions.Checkout {
 			return e.New(e.CodeInvalidCatalog, "GitHub runner bootstrap %q is incomplete", jobID)
 		}
@@ -387,8 +401,8 @@ func validateGitHubBundleFlat(ctx context.Context, plan *Plan, bundle *Generated
 			return err
 		}
 		key, value := githubSetupGoWith(release)
-		if job.Steps[1].Uses != actions.SetupGo || len(job.Steps[1].With) != 2 || job.Steps[1].With[key] != value ||
-			job.Steps[1].With["cache"] != "false" {
+		if !githubCIHelperCacheEnabled(plan) && (job.Steps[1].Uses != actions.SetupGo || len(job.Steps[1].With) != 2 || job.Steps[1].With[key] != value ||
+			job.Steps[1].With["cache"] != "false") {
 			return e.New(e.CodeInvalidCatalog, "GitHub runner bootstrap %q does not provision the pinned Go toolchain", jobID)
 		}
 		bootstrapRuns := joinRuns(job.Steps)
@@ -399,6 +413,19 @@ func validateGitHubBundleFlat(ctx context.Context, plan *Plan, bundle *Generated
 		helperEnvironment, err := githubRunnerHelperEnvironment(plan, runner)
 		if err != nil {
 			return err
+		}
+		if githubCIHelperCacheEnabled(plan) {
+			raw, err := encodeGitHubYAML(githubCICacheWriterSteps(actions, release, linkerFlags, "nvkr-exec-"+shortStableName(runner), helperEnvironment))
+			if err != nil {
+				return err
+			}
+			var expected []githubStep
+			if err := yaml.Unmarshal(raw, &expected); err != nil {
+				return e.Wrap(e.CodeInternal, err, "decode bootstrap cache steps")
+			}
+			if !reflect.DeepEqual(job.Steps[1:4], expected) {
+				return e.New(e.CodeEngineCapability, "GitHub runner bootstrap %q changes its cache writer", jobID)
+			}
 		}
 		if !stepUses(job.Steps, actions.Upload) ||
 			!strings.Contains(bootstrapRuns, githubRunnerInstallCommand(helperEnvironment, linkerFlags, release)) ||
