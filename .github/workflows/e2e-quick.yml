@@ -3,7 +3,7 @@
 
 # Fork-only experiment. Reuses a registered dispatch path on this proof branch;
 # neither the fork's default workflow nor NVKR's generated workflows are changed.
-name: Mkosi stock runner proof
+name: Mkosi full VM runtime proof
 
 on:
   workflow_dispatch:
@@ -19,7 +19,7 @@ jobs:
   proof:
     if: github.repository == 'njhensley/nvkr' && github.ref == 'refs/heads/fm/mkosi-runner-proof'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -29,7 +29,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          proof_root="$RUNNER_TEMP/mkosi-proof"
+          proof_root="$RUNNER_TEMP/mkosi-runtime"
           mkdir -p "$proof_root/tools"
           curl --fail --location --connect-timeout 10 --max-time 60 \
             --retry 2 --retry-delay 3 --retry-max-time 180 --max-filesize 353958 \
@@ -37,35 +37,52 @@ jobs:
             --output "$proof_root/mkosi.deb"
           echo "1f43afbe19de3f1a16f74de67aaa4e449b8bf06b81f5bec4e460d1e20afc5552  $proof_root/mkosi.deb" | sha256sum --check
           dpkg-deb --extract "$proof_root/mkosi.deb" "$proof_root/tools"
-      - name: Assemble without network or KVM in a measured sudo service
+      - name: Acquire and verify both snapshot package closures
         shell: bash
         run: |
           set -euo pipefail
-          proof_root="$RUNNER_TEMP/mkosi-proof"
           sudo systemd-run --quiet --wait --pipe --collect \
-            --unit="mkosi-proof-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
-            --property=MemoryAccounting=yes \
-            --property=PrivateDevices=yes \
-            --property=PrivateNetwork=yes \
-            --property=RuntimeMaxSec=180 \
-            /usr/bin/python3 "$GITHUB_WORKSPACE/scripts/mkosi-runner-proof.py" \
-            --mkosi-module "$proof_root/tools/usr/lib/python3/dist-packages" \
-            --fixture "$GITHUB_WORKSPACE/inputs/proofs/mkosi-runner" \
-            --root "$proof_root/build" \
-            --memory-scope "dedicated systemd service: monitor plus mkosi and its children"
+            --unit="mkosi-acquire-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
+            --property=PrivateDevices=yes --property=RuntimeMaxSec=1200 \
+            /usr/bin/python3 \
+            "$GITHUB_WORKSPACE/scripts/mkosi-runtime-proof.py" acquire \
+            --root "$RUNNER_TEMP/mkosi-runtime" \
+            --pins "$GITHUB_WORKSPACE/inputs/proofs/mkosi-runtime/pins.json"
+      - name: Assemble twice without network or KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          proof_root="$RUNNER_TEMP/mkosi-runtime"
+          for attempt in 1 2; do
+            sudo systemd-run --quiet --wait --pipe --collect \
+              --unit="mkosi-runtime-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$attempt" \
+              --property=MemoryAccounting=yes \
+              --property=PrivateDevices=yes \
+              --property=PrivateNetwork=yes \
+              --property=RuntimeMaxSec=1200 \
+              /usr/bin/python3 "$GITHUB_WORKSPACE/scripts/mkosi-runtime-proof.py" build \
+              --module "$proof_root/tools/usr/lib/python3/dist-packages" \
+              --pins "$GITHUB_WORKSPACE/inputs/proofs/mkosi-runtime/pins.json" \
+              --root "$proof_root" --attempt "$attempt"
+          done
+          sudo /usr/bin/python3 "$GITHUB_WORKSPACE/scripts/mkosi-runtime-proof.py" compare \
+            --root "$proof_root" \
+            --pins "$GITHUB_WORKSPACE/inputs/proofs/mkosi-runtime/pins.json"
       - name: Make proof records readable
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -d "$RUNNER_TEMP/mkosi-proof/build/results" ]]; then
-            sudo chmod -R a+rX "$RUNNER_TEMP/mkosi-proof/build/results"
+          if [[ -d "$RUNNER_TEMP/mkosi-runtime/records" ]]; then
+            sudo chmod -R a+rX "$RUNNER_TEMP/mkosi-runtime/records"
           fi
-      - name: Retain image and measurements
+      - name: Retain text records only, never runtime binaries
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: mkosi-proof-${{ github.run_id }}
-          path: ${{ runner.temp }}/mkosi-proof/build/results
+          name: mkosi-runtime-records-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/mkosi-runtime/records/*.json
+            ${{ runner.temp }}/mkosi-runtime/records/*.log
           if-no-files-found: error
           retention-days: 7

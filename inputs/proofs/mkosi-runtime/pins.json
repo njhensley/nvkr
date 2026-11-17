@@ -1,0 +1,103 @@
+{
+  "snapshot": "20261109T000000Z",
+  "architecture": "amd64",
+  "distribution": "ubuntu",
+  "packageManager": "apt",
+  "inReleaseSHA256": {
+    "noble": "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0",
+    "noble-updates": "a314ea1adfa55c2e35baaf49c696f06dd4fb2e2cf8ff063705336364bab82845",
+    "noble-security": "18cc61f0989d184a2b7dfcdd9d7fde893ad5a087418010a19abeaa71657b4ea5",
+    "resolute": "45f95ce276cdba3e41870516a130e03c58b8b7a79e9546b0efe9e526d255740c",
+    "resolute-updates": "f100a1a2f57a39b2f67a7f34219a462c474d4c275b456a94c2d5f1bccf077f25",
+    "resolute-security": "7f66b756f1b4eb0dee5076fe9cd08c7502510da510a86fa25f888449a131f7fe"
+  },
+  "baseline": {
+    "images": {
+      "amd64": "ghcr.io/dsx-ai-factory/nvkr/m2-candidate/toolchains/packer-native@sha256:915623e06b2d599ccdaee545d9e657112cd9740603a86e652077564181892f70",
+      "arm64": "ghcr.io/dsx-ai-factory/nvkr/m2-candidate/toolchains/packer-native@sha256:2dcb63fc894ec25f8763d37d5139d904be3f6f42c897ca0dd3b32a51f8d36140"
+    },
+    "packages": {
+      "ovmf": "2025.11-3ubuntu7.3",
+      "qemu-efi-aarch64": "2025.11-3ubuntu7.3",
+      "qemu-system-arm": "1:10.2.1+ds-1ubuntu3.3",
+      "qemu-system-x86": "1:10.2.1+ds-1ubuntu3.3",
+      "qemu-utils": "1:10.2.1+ds-1ubuntu3.3"
+    },
+    "firmwareSHA256": {
+      "/usr/share/OVMF/OVMF_CODE_4M.fd": "874f15a7c9110e78a89db159f0f68fc97e9076b74777520de1c235426f758aa7",
+      "/usr/share/OVMF/OVMF_VARS_4M.fd": "5d2ac383371b408398accee7ec27c8c09ea5b74a0de0ceea6513388b15be5d1e",
+      "/usr/share/AAVMF/AAVMF_CODE.no-secboot.fd": "de01af793c9ff318ac206d8c12e404a2e89baa39bd10e12ed0437a2f69fe012a",
+      "/usr/share/AAVMF/AAVMF_VARS.fd": "b3b855c5a80310168051164986855692d1bdb06e67619856177965cd87c6774f"
+    },
+    "scope": "Measured with sha256sum and dpkg-query from each exact selected image in read-only, network-none containers. Values identical on both architectures. Native ARM64 host; AMD64 emulated. File measurements only, not native AMD64 VM execution."
+  },
+  "packer": {
+    "version": "1.16.2",
+    "license": "BUSL-1.1",
+    "archives": {
+      "amd64": "sha256:abbfe0cf74985084112659b53e3565f264f70a20914c3b7c4f789f54f61c2414",
+      "arm64": "sha256:5d7d6de86a49b2d64f3c0eef5766855b580e10a7c45bd6605ba8f1dead7815ea"
+    },
+    "binaries": {
+      "amd64": "sha256:6f64a1e9e71be8b3a2f0225ccf0d51b5446fbf79d9ad323e917a0126ab6ee38a",
+      "arm64": "sha256:998b221b5f8a60b528138c1a8a5c2f69b30aaf196e9cabcd7139487a1dc93451"
+    }
+  },
+  "qemuPlugin": {
+    "source": "github.com/hashicorp/qemu",
+    "version": "1.1.8",
+    "license": "MPL-2.0",
+    "archives": {
+      "amd64": "sha256:dbdec022f362c9c0c351c860deb1a52a135fdfa71e126048ba45030e12714904",
+      "arm64": "sha256:4177468c555d0998a49019a16cb2236d6840182acfc2edcfe94141d999b5510c"
+    },
+    "binaries": {
+      "amd64": "sha256:7093fbbcfe8b2ace01ecb722a49c49a02187929f431c9a48188dc3c8132203d0",
+      "arm64": "sha256:4f030dd47b0cd618f593ad6221b61bf325b128b05dd1f00de4e90f60f534a1c3"
+    }
+  },
+  "roots": {
+    "inspect": {
+      "release": "noble",
+      "packages": [
+        "guestfs-tools=1.52.0-2ubuntu5",
+        "guestfish=1:1.52.0-5ubuntu3",
+        "libguestfs0t64=1:1.52.0-5ubuntu3",
+        "linux-image-virtual=6.8.0-149.149",
+        "qemu-system-x86=1:8.2.2+ds-0ubuntu1.18",
+        "qemu-utils=1:8.2.2+ds-0ubuntu1.18"
+      ]
+    },
+    "runtime": {
+      "release": "resolute",
+      "packages": [
+        "bash",
+        "ca-certificates",
+        "cloud-image-utils",
+        "coreutils",
+        "curl",
+        "dash",
+        "dpkg-dev",
+        "file",
+        "gcc",
+        "genisoimage",
+        "git",
+        "gnupg",
+        "gzip",
+        "libc6-dev",
+        "make",
+        "openssh-client",
+        "p7zip-full",
+        "python3",
+        "tar",
+        "unzip",
+        "xorriso",
+        "ovmf=2025.11-3ubuntu7.3",
+        "qemu-efi-aarch64=2025.11-3ubuntu7.3",
+        "qemu-system-arm=1:10.2.1+ds-1ubuntu3.3",
+        "qemu-system-x86=1:10.2.1+ds-1ubuntu3.3",
+        "qemu-utils=1:10.2.1+ds-1ubuntu3.3"
+      ]
+    }
+  }
+}
