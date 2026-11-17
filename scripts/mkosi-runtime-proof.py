@@ -83,16 +83,18 @@ def acquire(root, pins):
     start = time.monotonic()
     for name, spec in pins["roots"].items():
         cache = root / "packages" / name
-        for directory in ["lib/apt/lists/partial", "cache/apt/archives/partial", "empty"]:
+        for directory in ["lib/apt/lists/partial", "cache/apt/archives/partial", "empty", "log"]:
             (cache / directory).mkdir(parents=True, exist_ok=True)
         status = cache / "empty/status"
         status.write_text("")
         config = apt_configuration(root, name, pins)
         env = dict(os.environ, APT_CONFIG=str(config / "apt.conf"), LC_ALL="C.UTF-8")
         command = ["apt-get", "-o", f"Dir::State::status={status}",
+                   "-o", f"Dir::State={cache / 'lib/apt'}",
+                   "-o", f"Dir::Cache={cache / 'cache/apt'}",
                    "-o", f"Dir::State::lists={cache / 'lib/apt/lists'}",
                    "-o", f"Dir::Cache::archives={cache / 'cache/apt/archives'}",
-                   "-o", "Dir::Log=/dev/null", "-o", "APT::Architecture=amd64",
+                   "-o", f"Dir::Log={cache / 'log'}", "-o", "APT::Architecture=amd64",
                    "-o", "APT::Architectures=amd64", "-o", "APT::Get::Assume-Yes=true"]
         run([*command, "update", "--error-on=any"], log, env=env)
         metadata = {}
