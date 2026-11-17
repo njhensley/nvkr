@@ -254,7 +254,7 @@ def inventory(artifact, destination):
     return result
 
 
-def build(root, pins, module, attempt):
+def build(root, pins, module, attempt, configuration):
     if Path("/dev/kvm").exists():
         raise RuntimeError("KVM must not be visible")
     check_inputs(root)
@@ -283,7 +283,7 @@ def build(root, pins, module, attempt):
         if name == "runtime":
             content += f"ExtraTrees={root / 'extras'}\n           {work / 'inspect/output/inspect'}:/opt/nvkr/inspection\n"
         content += "[Build]\nBuildSources=\nCacheKey=proof\n"
-        (config / "mkosi.conf").write_text(content)
+        (config / "mkosi.conf").write_text(configuration.read_text() + "\n" + content)
         for directory in ["output", "cache"]:
             (config / directory).mkdir()
         # mkosi keeps repository metadata separate from downloaded packages.
@@ -311,6 +311,9 @@ def build(root, pins, module, attempt):
                 records / f"build-{attempt}-checks.log", timeout=30)
     artifact = work / "runtime/output/runtime.tar"
     entries = inventory(artifact, records / f"build-{attempt}-inventory.json")
+    for prefix in [".", "./opt/nvkr/inspection"]:
+        if any(path.startswith((prefix + "/var/cache/", prefix + "/var/log/")) for path in entries):
+            raise RuntimeError(f"generated cache or log survived mkosi exclusions: {prefix}")
     installed = {}
     with tarfile.open(artifact) as archive:
         for name, prefix in [("runtime", "."), ("inspect", "./opt/nvkr/inspection")]:
@@ -353,6 +356,8 @@ def compare(root):
     record(records / "comparison.json", {"byte_digest_equal": results[0]["sha256"] == results[1]["sha256"],
            "results": results, "missing_members": missing, "changed_member_count": len(changed),
            "changed_members": changed, "member_order_equal": order[0] == order[1]})
+    if results[0]["sha256"] != results[1]["sha256"]:
+        raise RuntimeError("runtime tar digests differ; see comparison.json")
 
 
 def main():
@@ -371,7 +376,7 @@ def main():
     elif args.mode == "build":
         if args.module is None or args.attempt is None:
             parser.error("build requires module and attempt")
-        build(args.root, pins, args.module, args.attempt)
+        build(args.root, pins, args.module, args.attempt, args.pins.with_name("mkosi.conf"))
     else:
         compare(args.root)
 
