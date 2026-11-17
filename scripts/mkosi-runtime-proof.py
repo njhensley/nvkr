@@ -262,7 +262,7 @@ def build(root, pins, module, attempt):
         output_format = "directory" if name == "inspect" else "tar"
         content = (f"[Distribution]\nDistribution={pins['distribution']}\nRelease={spec['release']}\n"
                    "Architecture=x86-64\nRepositories=universe\n"
-                   f"[Output]\nFormat={output_format}\nOutput={name}\nCompressOutput=no\n"
+                   f"[Output]\nFormat={output_format}\nOutput={name}\nCompressOutput=no\nSplitArtifacts=\n"
                    "[Content]\nBootable=no\nSourceDateEpoch=0\nWithDocs=yes\nWithRecommends=no\nCleanPackageMetadata=no\n"
                    "Packages=" + ",".join(spec["packages"]) + "\n")
         if name == "runtime":
