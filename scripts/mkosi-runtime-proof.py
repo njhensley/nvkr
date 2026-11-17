@@ -176,6 +176,9 @@ def acquire(root, pins):
         record(records / f"{name}-package-inputs.json", {
             "snapshot": pins["snapshot"], "inReleaseSHA256": metadata,
             "packages": closure, "cacheFiles": cache_files,
+            "metadataFiles": {str(p.relative_to(root)): digest(p)
+                              for p in sorted((cache / "lib/apt/lists").iterdir())
+                              if p.is_file() and p.name != "lock"},
         })
     extras = root / "extras"
     for key, project in [("packer", "packer"), ("qemuPlugin", "packer-plugin-qemu")]:
@@ -211,7 +214,7 @@ def acquire(root, pins):
 def check_inputs(root):
     for name in ["inspect", "runtime"]:
         inputs = json.loads((root / "records" / f"{name}-package-inputs.json").read_text())
-        for relative, sha in inputs["cacheFiles"].items():
+        for relative, sha in (inputs["cacheFiles"] | inputs["metadataFiles"]).items():
             if digest(root / relative) != sha:
                 raise RuntimeError(f"cached package changed: {relative}")
 
@@ -264,10 +267,14 @@ def build(root, pins, module, attempt):
                    "Packages=" + " ".join(spec["packages"]) + "\n")
         if name == "runtime":
             content += f"ExtraTrees={root / 'extras'}\n           {work / 'inspect/output/inspect'}:/opt/nvkr/inspection\n"
-        content += "[Build]\nBuildSources=\n"
+        content += "[Build]\nBuildSources=\nCacheKey=proof\n"
         (config / "mkosi.conf").write_text(content)
         for directory in ["output", "cache"]:
             (config / directory).mkdir()
+        # mkosi keeps repository metadata separate from downloaded packages.
+        # Seed its explicit cache key with the authenticated, rehashed lists.
+        shutil.copytree(root / "packages" / name / "lib/apt/lists",
+                        config / "cache/proof.metadata.cache/lib/apt/lists")
         workspace = work / f"{name}-workspace"
         workspace.mkdir()
         command = [sys.executable, "-m", "mkosi", "--debug", f"--directory={config}",
