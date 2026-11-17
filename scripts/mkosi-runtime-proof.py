@@ -152,13 +152,15 @@ def acquire(root, pins):
         status.write_text("")
         config = apt_configuration(root, name, pins)
         env = dict(os.environ, APT_CONFIG=str(config / "apt.conf"), LC_ALL="C.UTF-8")
+        # Match pinned mkosi's essential-package semantics from the first cache generation.
         command = ["apt-get", "-o", f"Dir::State::status={status}",
                    "-o", f"Dir::State={cache / 'lib/apt'}",
                    "-o", f"Dir::Cache={cache / 'cache/apt'}",
                    "-o", f"Dir::State::lists={cache / 'lib/apt/lists'}",
                    "-o", f"Dir::Cache::archives={cache / 'cache/apt/archives'}",
                    "-o", f"Dir::Log={cache / 'log'}", "-o", "APT::Architecture=amd64",
-                   "-o", "APT::Architectures=amd64", "-o", "APT::Get::Assume-Yes=true"]
+                   "-o", "APT::Architectures=amd64", "-o", "APT::Get::Assume-Yes=true",
+                   "-o", "pkgCacheGen::ForceEssential=,"]
         run([*command, "update", "--error-on=any"], log, env=env)
         metadata = {}
         for suite in [spec["release"], spec["release"] + "-updates", spec["release"] + "-security"]:
