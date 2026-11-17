@@ -219,6 +219,19 @@ def check_inputs(root):
                 raise RuntimeError(f"cached package changed: {relative}")
 
 
+def check_installed_packages(packages, inputs, name):
+    expected = {(p["Package"], p["Architecture"]): p["Version"] for p in inputs["packages"]}
+    actual = {(p["Package"], p["Architecture"]): p["Version"] for p in packages}
+    if len(expected) != len(inputs["packages"]) or len(actual) != len(packages):
+        raise RuntimeError(f"duplicate package identity: {name}")
+    if actual != expected:
+        differences = {f"{p}:{arch}": {"expected": expected.get((p, arch)),
+                                     "actual": actual.get((p, arch))}
+                       for p, arch in sorted(set(expected) | set(actual))
+                       if expected.get((p, arch)) != actual.get((p, arch))}
+        raise RuntimeError(f"installed package closure mismatch: {name}: {differences}")
+
+
 def inventory(artifact, destination):
     result = {}
     with artifact.open("rb") as raw, tarfile.open(artifact) as archive:
@@ -303,11 +316,8 @@ def build(root, pins, module, attempt):
                 packages = [p for p in fields(stream.read().decode())
                             if p.get("Status") == "install ok installed"]
             installed[name] = sorted(packages, key=lambda p: p["Package"])
-            by_name = {p["Package"]: p["Version"] for p in packages}
-            for requested in pins["roots"][name]["packages"]:
-                package, _, version = requested.partition("=")
-                if package not in by_name or (version and by_name[package] != version):
-                    raise RuntimeError(f"installed package pin missing: {name}:{requested}")
+            inputs = json.loads((records / f"{name}-package-inputs.json").read_text())
+            check_installed_packages(packages, inputs, name)
     record(records / f"build-{attempt}-installed-packages.json", installed)
     for path, sha in pins["baseline"]["firmwareSHA256"].items():
         if entries["." + path].get("sha256") != sha:
