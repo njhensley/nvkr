@@ -31,7 +31,8 @@ jobs:
           set -euo pipefail
           proof_root="$RUNNER_TEMP/mkosi-proof"
           mkdir -p "$proof_root/tools"
-          curl --fail --location --max-time 60 --max-filesize 353958 \
+          curl --fail --location --connect-timeout 10 --max-time 60 \
+            --retry 2 --retry-delay 3 --retry-max-time 180 --max-filesize 353958 \
             https://snapshot.ubuntu.com/ubuntu/20261109T000000Z/pool/universe/m/mkosi/mkosi_26-3_all.deb \
             --output "$proof_root/mkosi.deb"
           echo "1f43afbe19de3f1a16f74de67aaa4e449b8bf06b81f5bec4e460d1e20afc5552  $proof_root/mkosi.deb" | sha256sum --check
