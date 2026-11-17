@@ -168,13 +168,16 @@ def check_inputs(root):
 
 def inventory(artifact, destination):
     result = {}
-    with tarfile.open(artifact) as archive:
+    with artifact.open("rb") as raw, tarfile.open(artifact) as archive:
         for member in archive:
             if member.name in result:
                 raise RuntimeError(f"duplicate tar member {member.name}")
             entry = {key: getattr(member, key) for key in
-                     ["size", "mode", "uid", "gid", "uname", "gname", "mtime", "linkname", "pax_headers"]}
+                     ["size", "mode", "uid", "gid", "uname", "gname", "mtime", "linkname",
+                      "pax_headers", "devmajor", "devminor"]}
             entry["type"] = member.type.decode("ascii")
+            raw.seek(member.offset)
+            entry["rawHeaderSHA256"] = hashlib.sha256(raw.read(member.offset_data - member.offset)).hexdigest()
             if member.isfile():
                 with archive.extractfile(member) as stream:
                     entry["sha256"] = hashlib.file_digest(stream, "sha256").hexdigest()
