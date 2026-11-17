@@ -264,7 +264,7 @@ def build(root, pins, module, attempt):
                    "Architecture=x86-64\nRepositories=universe\n"
                    f"[Output]\nFormat={output_format}\nOutput={name}\nCompressOutput=no\n"
                    "[Content]\nBootable=no\nSourceDateEpoch=0\nWithDocs=yes\nWithRecommends=no\nCleanPackageMetadata=no\n"
-                   "Packages=" + " ".join(spec["packages"]) + "\n")
+                   "Packages=" + ",".join(spec["packages"]) + "\n")
         if name == "runtime":
             content += f"ExtraTrees={root / 'extras'}\n           {work / 'inspect/output/inspect'}:/opt/nvkr/inspection\n"
         content += "[Build]\nBuildSources=\nCacheKey=proof\n"
