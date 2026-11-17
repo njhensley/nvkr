@@ -5,16 +5,19 @@
 """Fork-only assembly experiment. Never uploads or publishes runtime binaries."""
 
 import argparse
+import concurrent.futures
 import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import signal
 import subprocess
 import sys
 import tarfile
 import time
+import urllib.parse
 import zipfile
 
 
@@ -76,6 +79,66 @@ def apt_configuration(root, name, pins):
     return config
 
 
+def download_packages(root, cache, plan, indexes, snapshot):
+    prefix = f"https://snapshot.ubuntu.com/ubuntu/{snapshot}/"
+    requested = {}
+    for line in plan.read_text().splitlines():
+        if not line.startswith("'"):
+            continue
+        uri, filename, size, _ = shlex.split(line)
+        if not uri.startswith(prefix) or Path(filename).name != filename or not filename.endswith(".deb"):
+            raise RuntimeError("APT download plan escaped pinned snapshot or cache")
+        package_path = urllib.parse.unquote(uri[len(prefix):])
+        if package_path in requested:
+            raise RuntimeError("duplicate package in APT download plan")
+        requested[package_path] = (uri, cache / "cache/apt/archives" / filename, int(size))
+    if not requested:
+        raise RuntimeError("empty APT download plan")
+    closure = {}
+    for index in indexes:
+        data = subprocess.run(["/usr/lib/apt/apt-helper", "cat-file", str(index)],
+                              check=True, capture_output=True, timeout=120).stdout.decode()
+        for package in fields(data):
+            filename = package.get("Filename")
+            if filename in requested:
+                if int(package["Size"]) != requested[filename][2]:
+                    raise RuntimeError("APT plan and signed index size differ")
+                if filename in closure and closure[filename]["SHA256"] != package["SHA256"]:
+                    raise RuntimeError("conflicting package hashes in signed indexes")
+                closure[filename] = package
+    if set(closure) != set(requested):
+        raise RuntimeError("APT plan package absent from authenticated snapshot indexes")
+
+    def fetch(filename):
+        uri, destination, size = requested[filename]
+        result = subprocess.run([
+            "curl", "--fail", "--location", "--connect-timeout", "10", "--max-time", "180",
+            "--retry", "2", "--retry-delay", "3", "--retry-max-time", "540",
+            "--max-filesize", str(size), "--output", str(destination), uri,
+        ], capture_output=True, text=True, timeout=560)
+        if result.returncode:
+            raise RuntimeError(f"download failed: {filename}: {result.stderr[-2000:]}")
+        if destination.stat().st_size != size or digest(destination) != closure[filename]["SHA256"]:
+            raise RuntimeError(f"package digest mismatch: {filename}")
+
+    print(f"Acquiring {len(requested)} authenticated packages with four workers", flush=True)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futures = [executor.submit(fetch, filename) for filename in sorted(requested)]
+        try:
+            for count, future in enumerate(concurrent.futures.as_completed(futures), 1):
+                future.result()
+                if count % 25 == 0 or count == len(futures):
+                    print(f"Verified {count}/{len(futures)} downloaded packages", flush=True)
+        except BaseException:
+            for future in futures:
+                future.cancel()
+            raise
+    return sorted(closure.values(), key=lambda p: (p["Package"], p["Version"])), {
+        str(destination.relative_to(root)): closure[filename]["SHA256"]
+        for filename, (_, destination, _) in requested.items()
+    }
+
+
 def acquire(root, pins):
     records = root / "records"
     records.mkdir(parents=True, exist_ok=True)
@@ -103,29 +166,16 @@ def acquire(root, pins):
             if len(matches) != 1 or digest(matches[0]) != pins["inReleaseSHA256"][suite]:
                 raise RuntimeError(f"snapshot metadata pin mismatch: {suite}")
             metadata[suite] = digest(matches[0])
-        # Empty status and isolated APT configuration: this only downloads the
-        # complete dependency closure; it cannot install onto the runner.
-        run([*command, "install", "--download-only", "?essential", "base-files", *spec["packages"]],
-            log, env=env)
-        wanted = {digest(deb): deb for deb in (cache / "cache/apt/archives").glob("*.deb")}
-        if not wanted:
-            raise RuntimeError("empty package closure")
-        closure = {}
-        for index in sorted((cache / "lib/apt/lists").glob("*_Packages*")):
-            data = subprocess.run(["/usr/lib/apt/apt-helper", "cat-file", str(index)],
-                                  check=True, capture_output=True, timeout=120).stdout.decode()
-            for package in fields(data):
-                sha = package.get("SHA256")
-                if sha in wanted:
-                    if wanted[sha].stat().st_size != int(package["Size"]):
-                        raise RuntimeError("package size mismatch")
-                    closure[sha] = package
-        if set(closure) != set(wanted):
-            raise RuntimeError("downloaded package absent from authenticated snapshot indexes")
+        # Resolve against empty state, then download only those exact packages.
+        # No package installation or host package-state change is possible here.
+        plan = records / f"{name}-download-plan.log"
+        run([*command, "install", "--download-only", "--print-uris", "?essential", "base-files",
+             *spec["packages"]], plan, env=env, timeout=120)
+        closure, cache_files = download_packages(root, cache, plan,
+            sorted((cache / "lib/apt/lists").glob("*_Packages*")), pins["snapshot"])
         record(records / f"{name}-package-inputs.json", {
             "snapshot": pins["snapshot"], "inReleaseSHA256": metadata,
-            "packages": sorted(closure.values(), key=lambda p: (p["Package"], p["Version"])),
-            "cacheFiles": {str(deb.relative_to(root)): sha for sha, deb in wanted.items()},
+            "packages": closure, "cacheFiles": cache_files,
         })
     extras = root / "extras"
     for key, project in [("packer", "packer"), ("qemuPlugin", "packer-plugin-qemu")]:
