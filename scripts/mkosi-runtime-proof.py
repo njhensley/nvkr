@@ -264,11 +264,14 @@ def build(root, pins, module, attempt):
                    "Packages=" + " ".join(spec["packages"]) + "\n")
         if name == "runtime":
             content += f"ExtraTrees={root / 'extras'}\n           {work / 'inspect/output/inspect'}:/opt/nvkr/inspection\n"
+        content += "[Build]\nBuildSources=\n"
         (config / "mkosi.conf").write_text(content)
-        for directory in ["output", "workspace", "cache"]:
+        for directory in ["output", "cache"]:
             (config / directory).mkdir()
+        workspace = work / f"{name}-workspace"
+        workspace.mkdir()
         command = [sys.executable, "-m", "mkosi", "--debug", f"--directory={config}",
-                   f"--output-directory={config / 'output'}", f"--workspace-directory={config / 'workspace'}",
+                   f"--output-directory={config / 'output'}", f"--workspace-directory={workspace}",
                    f"--cache-directory={config / 'cache'}", f"--package-cache-directory={root / 'packages' / name}",
                    "--cache-only=always", "--incremental=no", "build"]
         phase_start = time.monotonic()
